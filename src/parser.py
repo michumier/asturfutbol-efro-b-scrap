@@ -1,6 +1,7 @@
 import re
+import unicodedata
 from datetime import datetime, timedelta
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString, Tag
 from src.decoder import extract_d_table, decode_marcador
 
 
@@ -238,3 +239,279 @@ def parse_clasificacion(soup: BeautifulSoup, cod_equipo: str = "5400") -> dict |
                 pass
 
     return None
+
+
+def normalizar_nombre(nombre: str) -> str:
+    """
+    Normaliza el nombre de un equipo para poder compararlo entre páginas distintas:
+    elimina comillas, tildes, puntos y colapsa espacios (ej. 'Efro "B"' -> 'efro b').
+    """
+    if not nombre:
+        return ""
+    base = unicodedata.normalize("NFKD", nombre)
+    base = "".join(c for c in base if not unicodedata.combining(c)).lower()
+    base = re.sub(r"[^a-z0-9]+", " ", base)
+    return re.sub(r"\s+", " ", base).strip()
+
+
+def parse_clasificacion_completa(soup: BeautifulSoup) -> list[dict]:
+    """
+    Extrae la tabla de clasificación completa con todos los equipos del grupo.
+    Soporta el formato detallado (16 columnas: casa/fuera) y el simplificado.
+    Devuelve los equipos ordenados por posición.
+    """
+    equipos = []
+    vistos = set()
+
+    for tr in soup.select("table tr"):
+        link = tr.select_one('a[href*="codequipo="], a[href*="Codigo_Equipo="]')
+        if not link:
+            continue
+
+        cleaned = [td.get_text(strip=True) for td in tr.select("td")]
+        nombre = link.get_text(" ", strip=True)
+        clave = (nombre, cleaned[1] if len(cleaned) > 1 else "")
+        if clave in vistos:
+            continue
+
+        fila = None
+        # Formato detallado (casa + fuera): pos, nombre, pts, pj_c, pg_c, pe_c, pp_c, pj_f, pg_f, pe_f, pp_f, gf, gc
+        if len(cleaned) >= 14:
+            try:
+                fila = {
+                    "posicion": int(cleaned[1]),
+                    "equipo": nombre,
+                    "puntos": int(cleaned[3]),
+                    "pj": int(cleaned[4]) + int(cleaned[8]),
+                    "pg": int(cleaned[5]) + int(cleaned[9]),
+                    "pe": int(cleaned[6]) + int(cleaned[10]),
+                    "pp": int(cleaned[7]) + int(cleaned[11]),
+                    "gf": int(cleaned[12]),
+                    "gc": int(cleaned[13]),
+                }
+            except (ValueError, IndexError):
+                fila = None
+
+        # Formato simplificado: pos, nombre, pts, pj, pg, pe, pp
+        if fila is None and len(cleaned) >= 8:
+            try:
+                fila = {
+                    "posicion": int(cleaned[1]),
+                    "equipo": nombre,
+                    "puntos": int(cleaned[3]),
+                    "pj": int(cleaned[4]),
+                    "pg": int(cleaned[5]),
+                    "pe": int(cleaned[6]),
+                    "pp": int(cleaned[7]),
+                    "gf": 0,
+                    "gc": 0,
+                }
+            except (ValueError, IndexError):
+                fila = None
+
+        if fila is None:
+            continue
+
+        fila["dif"] = fila["gf"] - fila["gc"]
+        equipos.append(fila)
+        vistos.add(clave)
+
+    equipos.sort(key=lambda x: x["posicion"])
+    return equipos
+
+
+def _mapa_digitos(root, d_table: list[int]) -> tuple[dict, set]:
+    """
+    Construye el mapa id->dígito a partir de las ofuscaciones ntype() y reglas CSS,
+    y el conjunto de ids cuyo contenido está oculto (honeypots).
+    """
+    mapa = {}
+    ocultos = set()
+
+    for script in root.find_all("script"):
+        texto = script.string or ""
+        m = re.search(r'ntype\(\s*["\']([\w]+)["\']\s*,\s*(\d+)\s*,\s*(\d+)', texto)
+        if m:
+            idx = int(m.group(3)) * 10 + int(m.group(2))
+            if 0 <= idx < len(d_table):
+                mapa[m.group(1)] = str(d_table[idx])
+
+    for style in root.find_all("style"):
+        texto = style.string or ""
+        m = re.search(r"#([\w]+):(?:before|after)\s*\{([^}]*)\}", texto)
+        if not m:
+            continue
+        sid, regla = m.group(1), m.group(2)
+        m_content = re.search(r'content:\s*["\'](.*?)["\']', regla)
+        if not m_content:
+            continue
+        valor = m_content.group(1)
+        if valor.startswith("\\"):
+            try:
+                valor = chr(int(valor.lstrip("\\0"), 16))
+            except ValueError:
+                valor = ""
+        if "display:none" in regla.replace(" ", "").lower():
+            ocultos.add(sid)
+        elif valor.isdigit():
+            mapa[sid] = valor
+
+    return mapa, ocultos
+
+
+def _decodificar_numero(elemento, d_table: list[int]) -> str:
+    """
+    Reconstruye el número (de uno o varios dígitos) de un fragmento de marcador,
+    descartando los dígitos trampa ocultos mediante display:none.
+    """
+    fragmento = BeautifulSoup(str(elemento), "html.parser")
+    mapa, ocultos = _mapa_digitos(fragmento, d_table)
+
+    for tag in fragmento.find_all(["script", "style"]):
+        tag.decompose()
+    for tag in fragmento.find_all(style=re.compile(r"display\s*:\s*none", re.I)):
+        tag.decompose()
+
+    digitos = []
+    for node in fragmento.descendants:
+        if isinstance(node, Tag):
+            nid = node.get("id")
+            if nid and nid in mapa and nid not in ocultos:
+                digitos.append(mapa[nid])
+        elif isinstance(node, NavigableString):
+            texto = str(node).strip()
+            if texto.isdigit():
+                digitos.append(texto)
+
+    return "".join(digitos)
+
+
+def parse_goles_acta(soup_acta: BeautifulSoup) -> list[dict]:
+    """
+    Extrae la lista REAL de goles de un acta oficial (NFG_CmpPartido).
+
+    En fútbol base el marcador visible del acta está limitado a 5 goles de diferencia,
+    pero el listado de goles contiene todos los tantos. Este parser reconstruye el
+    resultado real y atribuye cada gol a su equipo (local/visitante) comparando el
+    marcador corrido que acompaña a cada gol.
+
+    Devuelve una lista ordenada cronológicamente:
+    [{ "minuto": int, "jugador": str, "tipo": "gol"|"pp",
+       "equipo": "local"|"visitante", "equipo_autor": "local"|"visitante",
+       "marcador": "X - Y" }]
+    """
+    goles = []
+    if soup_acta is None:
+        return goles
+
+    d_table = extract_d_table(soup_acta)
+    prev_local, prev_visit = 0, 0
+
+    for tr in soup_acta.select("tr"):
+        icono = tr.select_one("a.lgol, a.lgolpp")
+        minuto_el = tr.select_one("span.font-blue")
+        if not icono or not minuto_el:
+            continue
+
+        m_min = re.search(r"\((\d+)'\)", minuto_el.get_text(strip=True))
+        if not m_min:
+            continue
+
+        td_autor = minuto_el.find_parent("td")
+        jugador = ""
+        if td_autor:
+            jugador = re.sub(r"\(\d+'\)", "", td_autor.get_text(" ", strip=True)).strip()
+
+        tipo = "pp" if "lgolpp" in (icono.get("class") or []) else "gol"
+
+        # Marcador corrido: dos <i class="fa-solid"> (excluyendo el icono del balón)
+        marcador_local = marcador_visit = None
+        td_marcador = icono.find_parent("td")
+        if td_marcador:
+            partes = [
+                i for i in td_marcador.select("i.fa-solid")
+                if "fa-futbol" not in (i.get("class") or [])
+            ]
+            if len(partes) >= 2:
+                l_str = _decodificar_numero(partes[0], d_table)
+                v_str = _decodificar_numero(partes[1], d_table)
+                if l_str.isdigit() and v_str.isdigit():
+                    marcador_local, marcador_visit = int(l_str), int(v_str)
+
+        equipo = ""
+        marcador_txt = ""
+        if marcador_local is not None and marcador_visit is not None:
+            marcador_txt = f"{marcador_local} - {marcador_visit}"
+            if marcador_local == prev_local + 1 and marcador_visit == prev_visit:
+                equipo = "local"
+            elif marcador_visit == prev_visit + 1 and marcador_local == prev_local:
+                equipo = "visitante"
+            if marcador_local >= prev_local and marcador_visit >= prev_visit:
+                prev_local, prev_visit = marcador_local, marcador_visit
+
+        # Equipo al que pertenece el autor (en propia puerta es el contrario)
+        equipo_autor = equipo
+        if tipo == "pp" and equipo:
+            equipo_autor = "visitante" if equipo == "local" else "local"
+
+        goles.append({
+            "minuto": int(m_min.group(1)),
+            "jugador": jugador,
+            "tipo": tipo,
+            "equipo": equipo,
+            "equipo_autor": equipo_autor,
+            "marcador": marcador_txt,
+        })
+
+    return goles
+
+
+def marcador_real_desde_goles(goles: list[dict]) -> str:
+    """Devuelve el marcador real 'L - V' reconstruido a partir del último gol conocido."""
+    for gol in reversed(goles or []):
+        if gol.get("marcador"):
+            return gol["marcador"]
+    return ""
+
+
+def parse_tabla_goleadores(
+    soup_goleadores: BeautifulSoup,
+    nombre_equipo: str = None,
+) -> list[dict]:
+    """
+    Extrae la tabla de máximos goleadores del grupo (NFG_CMP_Goleadores).
+    Si se indica `nombre_equipo`, filtra solo los jugadores de ese equipo
+    (comparación normalizada, ej. 'Efro "B"' == 'Efro B').
+    """
+    goleadores = []
+    if soup_goleadores is None:
+        return goleadores
+
+    objetivo = normalizar_nombre(nombre_equipo) if nombre_equipo else None
+
+    for tr in soup_goleadores.select("table tr"):
+        tds = tr.select("td")
+        if len(tds) < 5:
+            continue
+        jugador = tds[0].get_text(" ", strip=True)
+        equipo = tds[1].get_text(" ", strip=True)
+        if not jugador or not equipo:
+            continue
+        try:
+            pj = int(tds[3].get_text(strip=True))
+            goles = int(tds[4].get_text(strip=True))
+        except (ValueError, IndexError):
+            continue
+
+        if objetivo and normalizar_nombre(equipo) != objetivo:
+            continue
+
+        goleadores.append({
+            "jugador": jugador,
+            "equipo": equipo,
+            "pj": pj,
+            "goles": goles,
+        })
+
+    goleadores.sort(key=lambda x: (-x["goles"], x["jugador"]))
+    return goleadores

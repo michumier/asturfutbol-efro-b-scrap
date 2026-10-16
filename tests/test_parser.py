@@ -6,6 +6,11 @@ from src.parser import (
     seleccionar_jornada_actual,
     parse_partidos,
     parse_clasificacion,
+    parse_clasificacion_completa,
+    parse_goles_acta,
+    marcador_real_desde_goles,
+    parse_tabla_goleadores,
+    normalizar_nombre,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -84,3 +89,76 @@ def test_parse_clasificacion():
     assert clasif["pp"] == 0
     assert clasif["gf"] == 7
     assert clasif["gc"] == 2
+
+
+def test_normalizar_nombre():
+    assert normalizar_nombre('Efro "B"') == normalizar_nombre("Efro B")
+    assert normalizar_nombre('C.D. Vallobin "B"') == normalizar_nombre("C.D. Vallobin B")
+    assert normalizar_nombre("") == ""
+
+
+def test_parse_clasificacion_completa():
+    html = (FIXTURES_DIR / "clasificacion_2.html").read_text(encoding="iso-8859-15")
+    soup = BeautifulSoup(html, "html.parser")
+    equipos = parse_clasificacion_completa(soup)
+
+    assert len(equipos) == 15
+    assert equipos[0]["posicion"] == 1
+    assert equipos == sorted(equipos, key=lambda e: e["posicion"])
+
+    efro = next(e for e in equipos if normalizar_nombre(e["equipo"]) == normalizar_nombre('Efro "B"'))
+    assert efro["posicion"] == 5
+    assert efro["puntos"] == 3
+    assert efro["pj"] == 1
+    assert efro["gf"] == 7
+    assert efro["gc"] == 2
+    assert efro["dif"] == 5
+
+
+def test_parse_goles_acta():
+    raw = (FIXTURES_DIR / "acta_j2.html").read_bytes().decode("utf-8", "replace")
+    soup = BeautifulSoup(raw, "html.parser")
+    goles = parse_goles_acta(soup)
+
+    # El acta de fútbol base limita el marcador a 7-2, pero hay 13 goles reales
+    assert len(goles) == 13
+    assert marcador_real_desde_goles(goles) == "11 - 2"
+
+    # Atribución local/visitante coherente y cronológica
+    assert [g["minuto"] for g in goles] == sorted(g["minuto"] for g in goles)
+    assert goles[0]["jugador"] == "SÁNCHEZ SUÁREZ, NICOLÁS"
+    assert goles[0]["equipo"] == "local"
+    assert goles[0]["marcador"] == "1 - 0"
+
+    locales = [g for g in goles if g["equipo"] == "local"]
+    visitantes = [g for g in goles if g["equipo"] == "visitante"]
+    assert len(locales) == 11
+    assert len(visitantes) == 2
+
+    # Goles en propia puerta detectados
+    pps = [g for g in goles if g["tipo"] == "pp"]
+    assert len(pps) == 2
+    # El autor de una p.p. pertenece al equipo contrario al que se le acredita el gol
+    for pp in pps:
+        assert pp["equipo_autor"] != pp["equipo"]
+
+
+def test_parse_tabla_goleadores_filtra_equipo():
+    raw = (FIXTURES_DIR / "goleadores_j2.html").read_bytes().decode("utf-8", "replace")
+    soup = BeautifulSoup(raw, "html.parser")
+    goleadores = parse_tabla_goleadores(soup, nombre_equipo='Efro "B"')
+
+    assert len(goleadores) == 6
+    # Ordenados de más a menos goles
+    assert goleadores == sorted(goleadores, key=lambda g: (-g["goles"], g["jugador"]))
+    assert all(g["goles"] >= 1 for g in goleadores)
+
+    bello = next(g for g in goleadores if g["jugador"] == "BELLO FERNANDES, ADRIÁN")
+    assert bello["goles"] == 3
+
+
+def test_parse_tabla_goleadores_sin_filtro():
+    raw = (FIXTURES_DIR / "goleadores_j2.html").read_bytes().decode("utf-8", "replace")
+    soup = BeautifulSoup(raw, "html.parser")
+    goleadores = parse_tabla_goleadores(soup)
+    assert len(goleadores) > 6

@@ -4,9 +4,26 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import requests
-from src.config import NTFY_TOPIC, NOTIFICATION_EMAIL, ENABLE_NTFY
+from src.config import NTFY_TOPIC, NOTIFICATION_EMAIL, ENABLE_NTFY, MI_EQUIPO_ID, MI_EQUIPO_NOMBRE
+from src.parser import normalizar_nombre
 
 logger = logging.getLogger(__name__)
+
+
+def _lado_a_nombre(partido: dict, lado: str) -> str:
+    """Traduce 'local'/'visitante' al nombre real del equipo en este partido."""
+    if lado == "local":
+        return partido.get("local", "Local")
+    if lado == "visitante":
+        return partido.get("visitante", "Visitante")
+    return ""
+
+
+def _es_equipo_propio(partido: dict, mi_equipo_id: str = None) -> bool:
+    """Indica si nuestro equipo juega como local en el partido dado."""
+    objetivo = mi_equipo_id or MI_EQUIPO_ID
+    ids = partido.get("ids", [])
+    return bool(ids) and ids[0] == objetivo
 
 
 def estado_legible(estado: str) -> str:
@@ -24,6 +41,10 @@ def format_mensaje_resultado(
     partido: dict,
     clasificacion: dict = None,
     jornada: int = None,
+    goles: list[dict] = None,
+    clasificacion_completa: list[dict] = None,
+    goleadores_equipo: list[dict] = None,
+    mi_equipo_id: str = None,
 ) -> tuple[str, str, str]:
     """Construye el título, el cuerpo de texto plano y el HTML visual del mensaje de resultado."""
     est_txt = estado_legible(partido.get("estado", ""))
@@ -32,20 +53,30 @@ def format_mensaje_resultado(
     local = partido["local"]
     visitante = partido["visitante"]
     marcador = partido["marcador"]
+    # Marcador real reconstruido del acta (el visible puede estar limitado a 5 goles de diferencia)
+    marcador_real = partido.get("marcador_real") or marcador
     escudo_local = partido.get("escudo_local") or ""
     escudo_visitante = partido.get("escudo_visitante") or ""
     campo = partido.get("campo", "")
     fecha = partido.get("fecha", "")
     arbitro = partido.get("arbitro", "")
     acta = partido.get("acta", "")
+    goles = goles or []
+    clasificacion_completa = clasificacion_completa or []
+    goleadores_equipo = goleadores_equipo or []
+    es_efro_local = _es_equipo_propio(partido, mi_equipo_id)
 
     # 1. Versión Texto Plano
-    linea_principal = f"{local} {marcador} {visitante}"
+    linea_principal = f"{local} {marcador_real} {visitante}"
     if j_str:
         linea_principal += f" ({j_str})"
 
     detalles = [linea_principal]
-    
+    if marcador_real != marcador:
+        detalles.append(
+            f"(Marcador oficial del acta limitado a 5 goles de diferencia: {marcador})"
+        )
+
     if clasificacion:
         pos = clasificacion.get("posicion")
         pts = clasificacion.get("puntos")
@@ -69,7 +100,35 @@ def format_mensaje_resultado(
     if arbitro:
         detalles.append(f"Árbitro: {arbitro}")
 
-    titulo = f"⚽ Efro B: {marcador} vs {visitante if '5400' in partido.get('ids', [])[:1] else local} [{est_txt}]"
+    if goles:
+        detalles.append("")
+        detalles.append(f"⚽ Goles del partido ({len(goles)}):")
+        for gol in goles:
+            marca_pp = " (p.p.)" if gol.get("tipo") == "pp" else ""
+            detalles.append(
+                f"  {gol.get('minuto', '')}' {gol.get('jugador', '')}{marca_pp} "
+                f"— {_lado_a_nombre(partido, gol.get('equipo'))}"
+            )
+
+    if goleadores_equipo:
+        detalles.append("")
+        detalles.append(f"🎯 Goleadores {MI_EQUIPO_NOMBRE}:")
+        for i, go in enumerate(goleadores_equipo, 1):
+            unidad = "gol" if go["goles"] == 1 else "goles"
+            detalles.append(f"  {i}. {go['jugador']} — {go['goles']} {unidad}")
+
+    if clasificacion_completa:
+        detalles.append("")
+        detalles.append("🏆 Clasificación completa:")
+        for eq in clasificacion_completa:
+            marca = "  <<<" if normalizar_nombre(eq["equipo"]) == normalizar_nombre(MI_EQUIPO_NOMBRE) else ""
+            detalles.append(
+                f"  {eq['posicion']:>2}. {eq['equipo']:<36} "
+                f"{eq['pj']:>2}PJ {eq['gf']:>3}:{eq['gc']:<3} {eq['puntos']:>2} pts{marca}"
+            )
+
+    rival = visitante if es_efro_local else local
+    titulo = f"⚽ Efro B: {marcador_real} vs {rival} [{est_txt}]"
     cuerpo_texto = "\n".join(detalles)
 
     # 2. Versión HTML Visual
@@ -126,6 +185,89 @@ def format_mensaje_resultado(
 
     url_acta = f"https://www.asturfutbol.es/pnfg/NPcd/NFG_CmpPartido?cod_primaria=1000120&CodActa={acta}" if acta else "https://www.asturfutbol.es/"
 
+    # 3. Sección de goles del partido
+    goles_html = ""
+    if goles:
+        filas_goles = ""
+        for gol in goles:
+            marca_pp = " <span style='color:#B91C1C;font-weight:bold;'>(p.p.)</span>" if gol.get("tipo") == "pp" else ""
+            filas_goles += f"""
+                <tr>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: center; color: #0284C7; font-weight: bold; white-space: nowrap;">{gol.get('minuto', '')}'</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; color: #1E293B;">{gol.get('jugador', '')}{marca_pp}</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: right; color: #64748B; font-size: 12px;">{_lado_a_nombre(partido, gol.get('equipo'))}</td>
+                </tr>"""
+        goles_html = f"""
+        <div style="background-color: #F8FAFC; border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid #E2E8F0;">
+            <h4 style="margin: 0 0 12px 0; color: #002B49; font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+                ⚽ Goles del partido <span style="color:#64748B; font-weight:normal; text-transform:none;">({len(goles)})</span>
+            </h4>
+            <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; border-collapse: collapse;">{filas_goles}
+            </table>
+        </div>"""
+
+    # 4. Sección de goleadores del equipo
+    goleadores_html = ""
+    if goleadores_equipo:
+        filas_gol = ""
+        for i, go in enumerate(goleadores_equipo, 1):
+            filas_gol += f"""
+                <tr>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: center; color: #64748B; font-weight: bold;">{i}</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; color: #1E293B;">{go['jugador']}</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: right; color: #0284C7; font-weight: bold;">{go['goles']}</td>
+                </tr>"""
+        goleadores_html = f"""
+        <div style="background-color: #F8FAFC; border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid #E2E8F0;">
+            <h4 style="margin: 0 0 12px 0; color: #002B49; font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+                🎯 Goleadores {MI_EQUIPO_NOMBRE}
+            </h4>
+            <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; border-collapse: collapse;">{filas_gol}
+            </table>
+        </div>"""
+
+    # 5. Sección de clasificación completa
+    clasif_completa_html = ""
+    if clasificacion_completa:
+        filas_clasif = ""
+        for eq in clasificacion_completa:
+            es_efro = normalizar_nombre(eq["equipo"]) == normalizar_nombre(MI_EQUIPO_NOMBRE)
+            fondo = "#EFF6FF" if es_efro else "#FFFFFF"
+            peso = "bold" if es_efro else "normal"
+            color_eq = "#1D4ED8" if es_efro else "#1E293B"
+            filas_clasif += f"""
+                <tr style="background-color: {fondo};">
+                    <td style="padding: 5px 6px; text-align: center; color: #64748B; border-bottom: 1px solid #F1F5F9;">{eq['posicion']}</td>
+                    <td style="padding: 5px 6px; text-align: left; font-weight: {peso}; color: {color_eq}; border-bottom: 1px solid #F1F5F9;">{eq['equipo']}</td>
+                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pj']}</td>
+                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['gf']}:{eq['gc']}</td>
+                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['dif']:+d}</td>
+                    <td style="padding: 5px 6px; text-align: center; font-weight: bold; color: #002B49; border-bottom: 1px solid #F1F5F9;">{eq['puntos']}</td>
+                </tr>"""
+        clasif_completa_html = f"""
+        <div style="background-color: #F8FAFC; border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid #E2E8F0;">
+            <h4 style="margin: 0 0 12px 0; color: #002B49; font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+                🏆 Clasificación · 3ª Benjamín Grupo 10
+            </h4>
+            <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; border-collapse: collapse;">
+                <tr style="color:#64748B; font-size: 11px; text-transform: uppercase;">
+                    <td style="padding: 4px; text-align: center; width: 8%;">#</td>
+                    <td style="padding: 4px; text-align: left;">Equipo</td>
+                    <td style="padding: 4px; text-align: center; width: 10%;">PJ</td>
+                    <td style="padding: 4px; text-align: center; width: 14%;">GF:GC</td>
+                    <td style="padding: 4px; text-align: center; width: 10%;">Dif</td>
+                    <td style="padding: 4px; text-align: center; width: 10%;">Pts</td>
+                </tr>{filas_clasif}
+            </table>
+        </div>"""
+
+    nota_marcador_html = ""
+    if marcador_real != marcador:
+        nota_marcador_html = f"""
+        <div style="background-color: #FEF3C7; border: 1px solid #FDE68A; border-radius: 8px; padding: 10px 14px; margin-top: 14px; font-size: 12px; color: #92400E;">
+            ℹ️ El acta oficial limita el marcador a 5 goles de diferencia. <strong>Resultado real: {marcador_real}</strong> (oficial: {marcador}).
+        </div>"""
+
     cuerpo_html = f"""
     <!DOCTYPE html>
     <html lang="es">
@@ -173,8 +315,8 @@ def format_mensaje_resultado(
 
                                         <!-- Marcador -->
                                         <td style="width: 24%; vertical-align: middle;">
-                                            <div style="background-color: #002B49; color: #ffffff; font-size: 32px; font-weight: 900; padding: 10px 4px; border-radius: 12px; letter-spacing: 2px; box-shadow: 0 4px 10px rgba(0,43,73,0.25);">
-                                                {marcador}
+                                            <div style="background-color: #002B49; color: #ffffff; font-size: 22px; font-weight: 900; padding: 8px 4px; border-radius: 12px; letter-spacing: 0.5px; white-space: nowrap; word-break: keep-all; line-height: 1.1; box-shadow: 0 4px 10px rgba(0,43,73,0.25);">
+                                                {marcador_real.replace(' ', '&nbsp;')}
                                             </div>
                                         </td>
 
@@ -196,8 +338,19 @@ def format_mensaje_resultado(
                                     {f'<div>🧑‍⚖️ <strong>Árbitro:</strong> {arbitro}</div>' if arbitro else ''}
                                 </div>
 
-                                <!-- Clasificación -->
+                                {nota_marcador_html}
+
+                                <!-- Goles del partido -->
+                                {goles_html}
+
+                                <!-- Clasificación (resumen del equipo) -->
                                 {clasif_html}
+
+                                <!-- Goleadores del equipo -->
+                                {goleadores_html}
+
+                                <!-- Clasificación completa -->
+                                {clasif_completa_html}
 
                                 <!-- Botón Ver Acta -->
                                 <div style="text-align: center; margin-top: 24px;">

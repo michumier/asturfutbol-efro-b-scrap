@@ -15,6 +15,7 @@ if sys.stdout and hasattr(sys.stdout, "reconfigure"):
 from src.client import AsturfutbolClient
 from src.config import (
     MI_EQUIPO_ID,
+    MI_EQUIPO_NOMBRE,
     NOTIFICATION_EMAIL,
     NTFY_TOPIC,
     ESTADO_FILE,
@@ -29,6 +30,10 @@ from src.parser import (
     seleccionar_jornada_actual,
     parse_partidos,
     parse_clasificacion,
+    parse_clasificacion_completa,
+    parse_goles_acta,
+    marcador_real_desde_goles,
+    parse_tabla_goleadores,
 )
 from src.state import (
     load_state,
@@ -146,6 +151,9 @@ def main():
         return ejecutar_test_notificacion()
 
     state = load_state(ESTADO_FILE)
+    client = None
+    soup_acta = None
+    soup_goleadores = None
 
     # 1. Obtener HTML de jornada y clasificación (vía fixture o vía red)
     if args.fixture:
@@ -163,9 +171,24 @@ def main():
         if not f_clasif.exists():
             f_clasif = fixtures_dir / "clasificacion_2.html"
 
+        f_acta = fixtures_dir / f"acta_j{j_num}.html"
+        if not f_acta.exists():
+            f_acta = fixtures_dir / "acta_j2.html"
+        f_goleadores = fixtures_dir / f"goleadores_j{j_num}.html"
+        if not f_goleadores.exists():
+            f_goleadores = fixtures_dir / "goleadores_j2.html"
+
         logger.info(f"Usando fixture de jornada: {f_jornada.name}")
         soup_jornada = BeautifulSoup(f_jornada.read_text(encoding="iso-8859-15"), "html.parser")
         soup_clasif = BeautifulSoup(f_clasif.read_text(encoding="iso-8859-15"), "html.parser")
+        soup_acta = (
+            BeautifulSoup(f_acta.read_bytes().decode("utf-8", "replace"), "html.parser")
+            if f_acta.exists() else None
+        )
+        soup_goleadores = (
+            BeautifulSoup(f_goleadores.read_bytes().decode("utf-8", "replace"), "html.parser")
+            if f_goleadores.exists() else None
+        )
         jornada_actual = j_num
     else:
         client = AsturfutbolClient()
@@ -211,6 +234,37 @@ def main():
     marcador = mi_partido["marcador"]
     estado = mi_partido["estado"]
 
+    # 4b. Datos ampliados: clasificación completa, goles del acta y goleadores del equipo
+    clasif_completa = parse_clasificacion_completa(soup_clasif)
+    goles = []
+    goleadores_equipo = []
+
+    if marcador:
+        if soup_acta is None and not args.fixture and client is not None and acta:
+            try:
+                soup_acta = client.get_acta_soup(acta)
+            except Exception as e:
+                logger.warning(f"No se pudo descargar el acta {acta}: {e}")
+        if soup_acta is not None:
+            goles = parse_goles_acta(soup_acta)
+            marcador_real = marcador_real_desde_goles(goles)
+            if marcador_real:
+                mi_partido["marcador_real"] = marcador_real
+                if marcador_real != marcador:
+                    logger.info(
+                        f"Marcador real reconstruido del acta: {marcador_real} (oficial limitado: {marcador})"
+                    )
+            logger.info(f"Goles extraídos del acta: {len(goles)}")
+
+    if soup_goleadores is None and not args.fixture and client is not None:
+        try:
+            soup_goleadores = client.get_goleadores_soup()
+        except Exception as e:
+            logger.warning(f"No se pudo descargar la tabla de goleadores: {e}")
+    if soup_goleadores is not None:
+        goleadores_equipo = parse_tabla_goleadores(soup_goleadores, nombre_equipo=MI_EQUIPO_NOMBRE)
+        logger.info(f"Goleadores de {MI_EQUIPO_NOMBRE} en la tabla: {len(goleadores_equipo)}")
+
     logger.info(
         f"Partido J{jornada_actual}: {mi_partido['local']} vs {mi_partido['visitante']} | "
         f"Marcador: '{marcador}' | Estado: {estado}"
@@ -228,8 +282,15 @@ def main():
         debe_enviar = args.force or debe_notificar_resultado(state, acta, marcador, estado)
         if debe_enviar:
             titulo, cuerpo_texto, cuerpo_html = format_mensaje_resultado(
-                mi_partido, clasif, jornada=jornada_actual
+                mi_partido,
+                clasif,
+                jornada=jornada_actual,
+                goles=goles,
+                clasificacion_completa=clasif_completa,
+                goleadores_equipo=goleadores_equipo,
             )
+            if args.fixture:
+                titulo = f"[PRUEBA] {titulo}"
             if args.dry_run:
                 print("\n" + "=" * 50)
                 print(f"[DRY-RUN] Notificación de resultado que se enviaría (email: {NOTIFICATION_EMAIL}):")
@@ -250,7 +311,8 @@ def main():
                 )
                 if ok_push or ok_email:
                     registrar_notificacion(state, acta, marcador, estado)
-                    save_state(state, ESTADO_FILE)
+                    if not args.fixture:
+                        save_state(state, ESTADO_FILE)
         else:
             logger.info("El resultado ya estaba notificado en estado.json y no ha cambiado (sin duplicados).")
 
@@ -262,6 +324,8 @@ def main():
                 titulo, cuerpo_texto, cuerpo_html = format_mensaje_previo(
                     mi_partido, jornada=jornada_actual
                 )
+                if args.fixture:
+                    titulo = f"[PRUEBA] {titulo}"
                 if args.dry_run:
                     print("\n" + "=" * 50)
                     print(f"[DRY-RUN] Recordatorio de viernes que se enviaría (email: {NOTIFICATION_EMAIL}):")
@@ -281,7 +345,8 @@ def main():
                     )
                     if ok_push or ok_email:
                         registrar_aviso_previo(state, acta)
-                        save_state(state, ESTADO_FILE)
+                        if not args.fixture:
+                            save_state(state, ESTADO_FILE)
             else:
                 logger.info("El recordatorio previo del viernes ya fue enviado para este partido.")
         else:
