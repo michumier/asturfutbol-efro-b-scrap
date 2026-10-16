@@ -1,0 +1,25 @@
+# Entorno virtual
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Configuración local sensible
+.env
+
+# Tests y cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Logs del sistema
+*.log
+
+# Archivo de estado local (opcional: en GitHub Actions se gestiona con commit)
+# Si deseas ignorarlo localmente, descomenta:
+# estado.json
