@@ -289,6 +289,8 @@ def main():
                 clasificacion_completa=clasif_completa,
                 goleadores_equipo=goleadores_equipo,
             )
+            if args.fixture:
+                titulo = f"[PRUEBA] {titulo}"
             if args.dry_run:
                 print("\n" + "=" * 50)
                 print(f"[DRY-RUN] Notificación de resultado que se enviaría (email: {NOTIFICATION_EMAIL}):")
@@ -322,6 +324,8 @@ def main():
                 titulo, cuerpo_texto, cuerpo_html = format_mensaje_previo(
                     mi_partido, jornada=jornada_actual
                 )
+                if args.fixture:
+                    titulo = f"[PRUEBA] {titulo}"
                 if args.dry_run:
                     print("\n" + "=" * 50)
                     print(f"[DRY-RUN] Recordatorio de viernes que se enviaría (email: {NOTIFICATION_EMAIL}):")

@@ -315,8 +315,8 @@ def format_mensaje_resultado(
 
                                         <!-- Marcador -->
                                         <td style="width: 24%; vertical-align: middle;">
-                                            <div style="background-color: #002B49; color: #ffffff; font-size: 32px; font-weight: 900; padding: 10px 4px; border-radius: 12px; letter-spacing: 2px; box-shadow: 0 4px 10px rgba(0,43,73,0.25);">
-                                                {marcador_real}
+                                            <div style="background-color: #002B49; color: #ffffff; font-size: 22px; font-weight: 900; padding: 8px 4px; border-radius: 12px; letter-spacing: 0.5px; white-space: nowrap; word-break: keep-all; line-height: 1.1; box-shadow: 0 4px 10px rgba(0,43,73,0.25);">
+                                                {marcador_real.replace(' ', '&nbsp;')}
                                             </div>
                                         </td>
 
