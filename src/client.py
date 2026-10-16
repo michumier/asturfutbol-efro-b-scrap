@@ -5,7 +5,10 @@ from src.config import (
     BASE_URL,
     URL_JORNADA,
     URL_CLASIFICACION,
+    URL_ACTA,
+    URL_GOLEADORES,
     DEFAULT_PARAMS,
+    GOLEADORES_PARAMS,
     USER_AGENT,
     HTTP_TIMEOUT,
 )
@@ -67,3 +70,19 @@ class AsturfutbolClient:
         if cod_jornada is not None:
             params["codjornada"] = cod_jornada
         return self.get_soup(URL_CLASIFICACION, params=params)
+
+    def get_acta_soup(self, cod_acta: str) -> BeautifulSoup:
+        """Descarga el acta oficial de un partido (goles, minutos y autores)."""
+        params = {
+            "cod_primaria": DEFAULT_PARAMS["cod_primaria"],
+            "CodActa": cod_acta,
+            "cod_acta": cod_acta,
+        }
+        return self.get_soup(URL_ACTA, params=params)
+
+    def get_goleadores_soup(self, cod_jornada: int = None) -> BeautifulSoup:
+        """Descarga la tabla de máximos goleadores del grupo."""
+        params = dict(GOLEADORES_PARAMS)
+        if cod_jornada is not None:
+            params["CodJornada"] = cod_jornada
+        return self.get_soup(URL_GOLEADORES, params=params)

@@ -8,12 +8,22 @@ load_dotenv()
 BASE_URL = "https://www.asturfutbol.es"
 URL_JORNADA = f"{BASE_URL}/pnfg/NPcd/NFG_CmpJornada"
 URL_CLASIFICACION = f"{BASE_URL}/pnfg/NPcd/NFG_VisClasificacion"
+URL_ACTA = f"{BASE_URL}/pnfg/NPcd/NFG_CmpPartido"
+URL_GOLEADORES = f"{BASE_URL}/pnfg/NPcd/NFG_CMP_Goleadores"
 
 DEFAULT_PARAMS = {
     "cod_primaria": 1000120,
     "CodCompeticion": 22880369,
     "CodGrupo": 23110224,
     "CodTemporada": 22,
+}
+
+# Parámetros de la página de máximos goleadores del grupo
+GOLEADORES_PARAMS = {
+    "cod_primaria": 1000120,
+    "codcompeticion": 22880369,
+    "codgrupo": 23110224,
+    "codtemporada": 22,
 }
 
 MI_EQUIPO_ID = os.getenv("MI_EQUIPO_ID", "5400")
