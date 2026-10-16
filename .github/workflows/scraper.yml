@@ -2,8 +2,9 @@ name: Avisos Efro B (Asturfutbol)
 
 on:
   schedule:
-    # Sábados (6) y Domingos (0) cada 30 minutos entre 06:00 y 15:00 UTC
-    # (equivale aproximadamente a 08:00 a 17:00 hora peninsular española)
+    # 1. Viernes por la tarde a las 17:00 UTC (19:00 hora peninsular española) -> Recordatorio de partido
+    - cron: '0 17 * * 5'
+    # 2. Sábados (6) y Domingos (0) cada 30 min de 06:00 a 15:30 UTC (08:00 a 17:30 hora de España) -> Resultados
     - cron: '*/30 6-15 * * 0,6'
   workflow_dispatch: # Permite ejecutar manualmente con un clic en GitHub
 

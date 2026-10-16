@@ -138,12 +138,24 @@ def parse_partidos(soup: BeautifulSoup) -> list[dict]:
         if m_arb:
             arbitro = m_arb.group(1).split("  ")[0].strip()
 
+        # Escudos
+        escudo_local = ""
+        escudo_visitante = ""
+        img_loc = t.select_one(".escudo_widgetL img") or t.select_one(".escudo_widget img")
+        img_vis = t.select_one(".escudo_widgetV img") or t.select_one(".escudo_widget2 img")
+        if img_loc and img_loc.get("src"):
+            escudo_local = img_loc["src"]
+        if img_vis and img_vis.get("src"):
+            escudo_visitante = img_vis["src"]
+
         partidos.append({
             "acta": cod_acta,
             "local": local_nombre,
             "local_id": local_id,
+            "escudo_local": escudo_local,
             "visitante": visitante_nombre,
             "visitante_id": visitante_id,
+            "escudo_visitante": escudo_visitante,
             "ids": [local_id, visitante_id],
             "marcador": marcador,
             "estado": estado,

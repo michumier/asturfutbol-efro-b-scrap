@@ -76,11 +76,12 @@ def ejecutar_test_notificacion():
         "gc": 2,
     }
 
-    titulo, cuerpo = format_mensaje_resultado(partido_test, clasif_test, jornada=2)
+    titulo, cuerpo_texto, cuerpo_html = format_mensaje_resultado(partido_test, clasif_test, jornada=2)
     titulo = f"[PRUEBA] {titulo}"
-    cuerpo = f"*** MENSAJE DE PRUEBA DE EFRO B ***\n\n{cuerpo}"
 
-    ok_push, ok_email = notificar(titulo, cuerpo, topic=NTFY_TOPIC, email=NOTIFICATION_EMAIL)
+    ok_push, ok_email = notificar(
+        titulo, cuerpo_texto, cuerpo_html=cuerpo_html, topic=NTFY_TOPIC, email=NOTIFICATION_EMAIL
+    )
     
     print("\n" + "=" * 60)
     if ok_push:
@@ -222,51 +223,69 @@ def main():
         )
 
     # 5. Detección de notificación
-    # Caso A: Partido con resultado
+    # Caso A: Partido con resultado (Sábado o Domingo cuando termine el partido)
     if marcador:
         debe_enviar = args.force or debe_notificar_resultado(state, acta, marcador, estado)
         if debe_enviar:
-            titulo, cuerpo = format_mensaje_resultado(mi_partido, clasif, jornada=jornada_actual)
+            titulo, cuerpo_texto, cuerpo_html = format_mensaje_resultado(
+                mi_partido, clasif, jornada=jornada_actual
+            )
             if args.dry_run:
                 print("\n" + "=" * 50)
-                print(f"[DRY-RUN] Notificación que se enviaría (ntfy + email: {NOTIFICATION_EMAIL}):")
+                print(f"[DRY-RUN] Notificación de resultado que se enviaría (email: {NOTIFICATION_EMAIL}):")
                 print(f"Título: {titulo}")
                 print("-" * 50)
-                print(cuerpo)
+                print(cuerpo_texto)
                 print("=" * 50 + "\n")
             else:
                 logger.info(f"Enviando notificación de resultado para acta {acta}...")
                 prioridad = "high" if estado == "cerrada" else "default"
                 ok_push, ok_email = notificar(
-                    titulo, cuerpo, topic=NTFY_TOPIC, email=NOTIFICATION_EMAIL, prioridad=prioridad
+                    titulo,
+                    cuerpo_texto,
+                    cuerpo_html=cuerpo_html,
+                    topic=NTFY_TOPIC,
+                    email=NOTIFICATION_EMAIL,
+                    prioridad=prioridad,
                 )
                 if ok_push or ok_email:
                     registrar_notificacion(state, acta, marcador, estado)
                     save_state(state, ESTADO_FILE)
         else:
-            logger.info("El resultado ya estaba notificado en estado.json y no ha cambiado.")
+            logger.info("El resultado ya estaba notificado en estado.json y no ha cambiado (sin duplicados).")
 
-    # Caso B: Partido sin jugar (Aviso previo de horario y campo)
+    # Caso B: Partido sin jugar (Recordatorio solo los viernes de tarde o con --force)
     else:
-        if debe_notificar_aviso_previo(state, acta) or args.force:
-            titulo, cuerpo = format_mensaje_previo(mi_partido, jornada=jornada_actual)
-            if args.dry_run:
-                print("\n" + "=" * 50)
-                print(f"[DRY-RUN] Aviso previo que se enviaría (ntfy + email: {NOTIFICATION_EMAIL}):")
-                print(f"Título: {titulo}")
-                print("-" * 50)
-                print(cuerpo)
-                print("=" * 50 + "\n")
-            else:
-                logger.info(f"Enviando aviso previo de partido para acta {acta}...")
-                ok_push, ok_email = notificar(
-                    titulo, cuerpo, topic=NTFY_TOPIC, email=NOTIFICATION_EMAIL, prioridad="low"
+        es_viernes = datetime.now().weekday() == 4
+        if es_viernes or args.force:
+            if debe_notificar_aviso_previo(state, acta) or args.force:
+                titulo, cuerpo_texto, cuerpo_html = format_mensaje_previo(
+                    mi_partido, jornada=jornada_actual
                 )
-                if ok_push or ok_email:
-                    registrar_aviso_previo(state, acta)
-                    save_state(state, ESTADO_FILE)
+                if args.dry_run:
+                    print("\n" + "=" * 50)
+                    print(f"[DRY-RUN] Recordatorio de viernes que se enviaría (email: {NOTIFICATION_EMAIL}):")
+                    print(f"Título: {titulo}")
+                    print("-" * 50)
+                    print(cuerpo_texto)
+                    print("=" * 50 + "\n")
+                else:
+                    logger.info(f"Enviando recordatorio de partido para acta {acta}...")
+                    ok_push, ok_email = notificar(
+                        titulo,
+                        cuerpo_texto,
+                        cuerpo_html=cuerpo_html,
+                        topic=NTFY_TOPIC,
+                        email=NOTIFICATION_EMAIL,
+                        prioridad="low",
+                    )
+                    if ok_push or ok_email:
+                        registrar_aviso_previo(state, acta)
+                        save_state(state, ESTADO_FILE)
+            else:
+                logger.info("El recordatorio previo del viernes ya fue enviado para este partido.")
         else:
-            logger.info("Aviso previo ya registrado para este partido.")
+            logger.info("Partido aún sin jugar. En fin de semana solo se notifica cuando finalice el encuentro.")
 
     return 0
 
