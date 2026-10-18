@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -45,10 +46,13 @@ from src.state import (
 )
 from src.validator import validate_partido, validate_clasificacion
 
+# Configurar logging con timestamps legibles
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%H:%M:%S",
+    level=getattr(logging, log_level, logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
 )
 logger = logging.getLogger("mucho-efro")
 
@@ -224,6 +228,16 @@ def main():
 
     # 4. Parsear y validar clasificación
     clasif = parse_clasificacion(soup_clasif, cod_equipo=MI_EQUIPO_ID)
+    if not clasif and not args.fixture and client is not None and jornada_actual > 1:
+        # Una jornada aún no jugada no tiene clasificación; usamos la de la jornada anterior.
+        logger.info(
+            f"Sin clasificación para la jornada {jornada_actual}; usando la de la jornada {jornada_actual - 1}."
+        )
+        try:
+            soup_clasif = client.get_clasificacion_soup(cod_jornada=jornada_actual - 1)
+            clasif = parse_clasificacion(soup_clasif, cod_equipo=MI_EQUIPO_ID)
+        except Exception as e:
+            logger.warning(f"No se pudo obtener la clasificación de la jornada anterior: {e}")
     if clasif:
         c_valida, c_motivo = validate_clasificacion(clasif)
         if not c_valida:
@@ -319,10 +333,19 @@ def main():
     # Caso B: Partido sin jugar (Recordatorio solo los viernes de tarde o con --force)
     else:
         es_viernes = datetime.now().weekday() == 4
+        dia_nombre = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"][datetime.now().weekday()]
+        logger.info(f"Partido sin marcador - estado: {estado}. Día actual: {dia_nombre} (weekday={datetime.now().weekday()}). ¿Es viernes? {es_viernes}. Acta: {acta}.")
         if es_viernes or args.force:
+            ya_enviado = not debe_notificar_aviso_previo(state, acta)
+            logger.info(f"Aviso previo registrado en estado: {not ya_enviado} | debe_notificar_aviso_previo={debe_notificar_aviso_previo(state,acta)} | force={args.force}")
             if debe_notificar_aviso_previo(state, acta) or args.force:
+                logger.info("Intentando enviar recordatorio previo del viernes...")
                 titulo, cuerpo_texto, cuerpo_html = format_mensaje_previo(
-                    mi_partido, jornada=jornada_actual
+                    mi_partido,
+                    jornada=jornada_actual,
+                    clasificacion=clasif,
+                    clasificacion_completa=clasif_completa,
+                    goleadores_equipo=goleadores_equipo,
                 )
                 if args.fixture:
                     titulo = f"[PRUEBA] {titulo}"
@@ -334,7 +357,7 @@ def main():
                     print(cuerpo_texto)
                     print("=" * 50 + "\n")
                 else:
-                    logger.info(f"Enviando recordatorio de partido para acta {acta}...")
+                    logger.info(f"Enviando recordatorio de partido para acta {acta} (NTFY={ENABLE_NTFY}, EMAIL={NOTIFICATION_EMAIL})...")
                     ok_push, ok_email = notificar(
                         titulo,
                         cuerpo_texto,
@@ -343,10 +366,12 @@ def main():
                         email=NOTIFICATION_EMAIL,
                         prioridad="low",
                     )
+                    logger.info(f"Resultado envío: push_ok={ok_push}, email_ok={ok_email}")
                     if ok_push or ok_email:
                         registrar_aviso_previo(state, acta)
                         if not args.fixture:
                             save_state(state, ESTADO_FILE)
+                            logger.info("Estado guardado: avisos_previos actualizado.")
             else:
                 logger.info("El recordatorio previo del viernes ya fue enviado para este partido.")
         else:
