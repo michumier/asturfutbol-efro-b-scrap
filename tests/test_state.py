@@ -22,14 +22,16 @@ def test_no_notificar_resultado_repetido():
     assert debe_notificar_resultado(state, "1001", "3 - 1", "cerrada") is False
 
 
-def test_notificar_cambio_marcador():
+def test_no_notificar_cambios_de_marcador_provisional():
     state = {
         "actas": {
-            "1001": {"marcador": "2 - 1", "estado": "provisional"}
+            "1001": {"marcador": "1 - 0", "estado": "provisional"}
         }
     }
-    # Ha subido a 3 - 1
-    assert debe_notificar_resultado(state, "1001", "3 - 1", "provisional") is True
+    # Ya avisamos del provisional: los cambios de marcador no generan más correos
+    assert debe_notificar_resultado(state, "1001", "2 - 0", "provisional") is False
+    assert debe_notificar_resultado(state, "1001", "2 - 1", "provisional") is False
+    assert debe_notificar_resultado(state, "1001", "3 - 1", "en_juego") is False
 
 
 def test_notificar_cambio_de_provisional_a_cerrada():
@@ -40,6 +42,37 @@ def test_notificar_cambio_de_provisional_a_cerrada():
     }
     # Marcador igual pero ahora es definitivo
     assert debe_notificar_resultado(state, "1001", "3 - 1", "cerrada") is True
+
+
+def test_no_notificar_cerrada_repetida():
+    state = {
+        "actas": {
+            "1001": {"marcador": "5 - 0", "estado": "cerrada"}
+        }
+    }
+    assert debe_notificar_resultado(state, "1001", "5 - 0", "cerrada") is False
+    # Aunque cambie el marcador corregido, ya no se vuelve a avisar
+    assert debe_notificar_resultado(state, "1001", "6 - 0", "cerrada") is False
+
+
+def test_solo_dos_avisos_en_toda_la_jornada():
+    """Simula la secuencia real de ayer: 1-0 -> 2-0 -> 1-0 -> cerrada 5-0."""
+    state = {"actas": {}, "avisos_previos": {}}
+    avisos = 0
+
+    secuencia = [
+        ("1 - 0", "provisional"),
+        ("2 - 0", "provisional"),
+        ("1 - 0", "provisional"),
+        ("5 - 0", "cerrada"),
+    ]
+    for marcador, estado in secuencia:
+        if debe_notificar_resultado(state, "1001", marcador, estado):
+            avisos += 1
+            registrar_notificacion(state, "1001", marcador, estado)
+
+    assert avisos == 2  # 1 provisional + 1 definitivo
+    assert state["actas"]["1001"]["estado"] == "cerrada"
 
 
 def test_aviso_previo_state():

@@ -293,7 +293,14 @@ def main():
     # 5. Detección de notificación
     # Caso A: Partido con resultado (Sábado o Domingo cuando termine el partido)
     if marcador:
+        previo = state.get("actas", {}).get(str(acta))
         debe_enviar = args.force or debe_notificar_resultado(state, acta, marcador, estado)
+        logger.info(
+            f"¿Notificar resultado? {debe_enviar} | "
+            f"previo: {previo.get('estado') if previo else 'ninguno'} "
+            f"({previo.get('marcador') if previo else '-'}) | "
+            f"actual: {estado} ({marcador})"
+        )
         if debe_enviar:
             titulo, cuerpo_texto, cuerpo_html = format_mensaje_resultado(
                 mi_partido,
@@ -328,7 +335,10 @@ def main():
                     if not args.fixture:
                         save_state(state, ESTADO_FILE)
         else:
-            logger.info("El resultado ya estaba notificado en estado.json y no ha cambiado (sin duplicados).")
+            logger.info(
+                "Sin aviso: este partido ya se notificó (máximo 1 provisional + 1 definitivo). "
+                "Los cambios de marcador en vivo no generan correos nuevos."
+            )
 
     # Caso B: Partido sin jugar (Recordatorio solo los viernes de tarde o con --force)
     else:
