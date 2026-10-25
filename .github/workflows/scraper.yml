@@ -34,10 +34,10 @@ jobs:
 
       - name: Consultar resultados y notificar
         env:
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC || 'efro-b-notificaciones-miguel' }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC || 'efro-b' }}
           ENABLE_NTFY: ${{ secrets.ENABLE_NTFY || 'false' }}
-          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL || 'miguelmierc@gmail.com' }}
-          USER_AGENT_EMAIL: ${{ secrets.USER_AGENT_EMAIL || 'miguelmierc@gmail.com' }}
+          NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL || secrets.SMTP_USER }}
+          USER_AGENT_EMAIL: ${{ secrets.USER_AGENT_EMAIL || secrets.SMTP_USER }}
           SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
           SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

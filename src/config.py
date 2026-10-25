@@ -29,10 +29,10 @@ GOLEADORES_PARAMS = {
 MI_EQUIPO_ID = os.getenv("MI_EQUIPO_ID", "5400")
 MI_EQUIPO_NOMBRE = os.getenv("MI_EQUIPO_NOMBRE", 'Efro "B"')
 
-NTFY_TOPIC = os.getenv("NTFY_TOPIC", "efro-b-notificaciones-miguel")
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "mi-canal-privado")
 ENABLE_NTFY = os.getenv("ENABLE_NTFY", "false").lower() in ("true", "1", "yes")
-NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL", "miguelmierc@gmail.com")
-USER_AGENT_EMAIL = os.getenv("USER_AGENT_EMAIL", "miguelmierc@gmail.com")
+NOTIFICATION_EMAIL = os.getenv("NOTIFICATION_EMAIL", "destino@example.com")
+USER_AGENT_EMAIL = os.getenv("USER_AGENT_EMAIL", "contacto@example.com")
 
 USER_AGENT = (
     f"Mozilla/5.0 (compatible; EfroBResultadosBot/1.0; "
