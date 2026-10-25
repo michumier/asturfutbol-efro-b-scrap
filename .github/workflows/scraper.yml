@@ -35,13 +35,23 @@ jobs:
       - name: Consultar resultados y notificar
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC || 'efro-b-notificaciones-miguel' }}
+          ENABLE_NTFY: ${{ secrets.ENABLE_NTFY || 'false' }}
           NOTIFICATION_EMAIL: ${{ secrets.NOTIFICATION_EMAIL || 'miguelmierc@gmail.com' }}
           USER_AGENT_EMAIL: ${{ secrets.USER_AGENT_EMAIL || 'miguelmierc@gmail.com' }}
           SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
           SMTP_PORT: ${{ secrets.SMTP_PORT || '587' }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-        run: python main.py
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'INFO' }}
+        run: python main.py 2>&1 | tee -a run.log
+
+      - name: Subir logs como artefacto (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scraper-logs-${{ github.run_id }}
+          path: run.log
+          retention-days: 7
 
       - name: Persistir estado.json
         uses: stefanzweifel/git-auto-commit-action@v5

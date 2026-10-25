@@ -34,28 +34,29 @@ def save_state(state: dict, filepath: Path = ESTADO_FILE) -> None:
 
 def debe_notificar_resultado(state: dict, cod_acta: str, marcador: str, estado: str) -> bool:
     """
-    Determina si un marcador o cambio de estado requiere emitir una nueva notificación:
-    - Partido nuevo con marcador.
-    - Marcador que ha cambiado (ej. corrección o gol en vivo).
-    - Cambio de estado provisional a definitivo (cerrada).
+    Determina si hay que emitir una nueva notificación de resultado.
+
+    Regla: como máximo UN aviso provisional y UN aviso definitivo por partido.
+    - Primera vez que se ve un marcador -> se notifica (provisional o definitivo).
+    - Cambios de marcador mientras sigue provisional/en juego -> NO se notifican
+      (evita la avalancha de correos con cada gol).
+    - Paso de provisional/en juego a cerrada -> se notifica una sola vez.
     """
     if not marcador:
         return False
 
     previo = state.get("actas", {}).get(str(cod_acta))
     if not previo:
+        # Primer aviso del partido (aún no habíamos notificado nada).
         return True
 
-    marcador_anterior = previo.get("marcador")
     estado_anterior = previo.get("estado")
 
-    if marcador_anterior != marcador:
+    # Único aviso adicional permitido: cuando el acta queda definitiva (cerrada).
+    if estado == "cerrada" and estado_anterior != "cerrada":
         return True
 
-    # Notificar si antes era provisional o en_juego y ahora pasa a cerrada (definitivo)
-    if estado_anterior in {"provisional", "en_juego"} and estado == "cerrada":
-        return True
-
+    # Cualquier otro cambio (marcador en vivo, correcciones provisionales) se ignora.
     return False
 
 
