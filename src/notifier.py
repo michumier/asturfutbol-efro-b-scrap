@@ -26,6 +26,83 @@ def _es_equipo_propio(partido: dict, mi_equipo_id: str = None) -> bool:
     return bool(ids) and ids[0] == objetivo
 
 
+def _tarjeta_html(titulo: str, contenido: str) -> str:
+    """Envuelve un contenido en una tarjeta con el mismo estilo visual del correo."""
+    return f"""
+        <div style="background-color: #F8FAFC; border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid #E2E8F0;">
+            <h4 style="margin: 0 0 12px 0; color: #002B49; font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+                {titulo}
+            </h4>
+            {contenido}
+        </div>"""
+
+
+def _tarjeta_goles_html(partido: dict, goles: list[dict]) -> str:
+    """Tarjeta con la lista de goles del partido (autor y minuto)."""
+    if not goles:
+        return ""
+    filas = ""
+    for gol in goles:
+        marca_pp = " <span style='color:#B91C1C;font-weight:bold;'>(p.p.)</span>" if gol.get("tipo") == "pp" else ""
+        filas += f"""
+                <tr>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: center; color: #0284C7; font-weight: bold; white-space: nowrap;">{gol.get('minuto', '')}'</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; color: #1E293B;">{gol.get('jugador', '')}{marca_pp}</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: right; color: #64748B; font-size: 12px;">{_lado_a_nombre(partido, gol.get('equipo'))}</td>
+                </tr>"""
+    tabla = f'<table width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; border-collapse: collapse;">{filas}\n            </table>'
+    titulo = f'⚽ Goles del partido <span style="color:#64748B; font-weight:normal; text-transform:none;">({len(goles)})</span>'
+    return _tarjeta_html(titulo, tabla)
+
+
+def _tarjeta_goleadores_html(goleadores_equipo: list[dict]) -> str:
+    """Tarjeta con el listado de goleadores de nuestro equipo."""
+    if not goleadores_equipo:
+        return ""
+    filas = ""
+    for i, go in enumerate(goleadores_equipo, 1):
+        filas += f"""
+                <tr>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: center; color: #64748B; font-weight: bold;">{i}</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; color: #1E293B;">{go['jugador']}</td>
+                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: right; color: #0284C7; font-weight: bold;">{go['goles']}</td>
+                </tr>"""
+    tabla = f'<table width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; border-collapse: collapse;">{filas}\n            </table>'
+    return _tarjeta_html(f"🎯 Goleadores {MI_EQUIPO_NOMBRE}", tabla)
+
+
+def _tarjeta_clasificacion_html(clasificacion_completa: list[dict]) -> str:
+    """Tarjeta con la tabla de clasificación completa, resaltando a nuestro equipo."""
+    if not clasificacion_completa:
+        return ""
+    filas = ""
+    for eq in clasificacion_completa:
+        es_efro = normalizar_nombre(eq["equipo"]) == normalizar_nombre(MI_EQUIPO_NOMBRE)
+        fondo = "#EFF6FF" if es_efro else "#FFFFFF"
+        peso = "bold" if es_efro else "normal"
+        color_eq = "#1D4ED8" if es_efro else "#1E293B"
+        filas += f"""
+                <tr style="background-color: {fondo};">
+                    <td style="padding: 5px 6px; text-align: center; color: #64748B; border-bottom: 1px solid #F1F5F9;">{eq['posicion']}</td>
+                    <td style="padding: 5px 6px; text-align: left; font-weight: {peso}; color: {color_eq}; border-bottom: 1px solid #F1F5F9;">{eq['equipo']}</td>
+                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pj']}</td>
+                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['gf']}:{eq['gc']}</td>
+                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['dif']:+d}</td>
+                    <td style="padding: 5px 6px; text-align: center; font-weight: bold; color: #002B49; border-bottom: 1px solid #F1F5F9;">{eq['puntos']}</td>
+                </tr>"""
+    tabla = f"""<table width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; border-collapse: collapse;">
+                <tr style="color:#64748B; font-size: 11px; text-transform: uppercase;">
+                    <td style="padding: 4px; text-align: center; width: 8%;">#</td>
+                    <td style="padding: 4px; text-align: left;">Equipo</td>
+                    <td style="padding: 4px; text-align: center; width: 10%;">PJ</td>
+                    <td style="padding: 4px; text-align: center; width: 14%;">GF:GC</td>
+                    <td style="padding: 4px; text-align: center; width: 10%;">Dif</td>
+                    <td style="padding: 4px; text-align: center; width: 10%;">Pts</td>
+                </tr>{filas}
+            </table>"""
+    return _tarjeta_html("🏆 Clasificación · 3ª Benjamín Grupo 10", tabla)
+
+
 def estado_legible(estado: str) -> str:
     """Mapea el identificador interno de estado a texto comprensible."""
     mapeo = {
@@ -185,81 +262,10 @@ def format_mensaje_resultado(
 
     url_acta = f"https://www.asturfutbol.es/pnfg/NPcd/NFG_CmpPartido?cod_primaria=1000120&CodActa={acta}" if acta else "https://www.asturfutbol.es/"
 
-    # 3. Sección de goles del partido
-    goles_html = ""
-    if goles:
-        filas_goles = ""
-        for gol in goles:
-            marca_pp = " <span style='color:#B91C1C;font-weight:bold;'>(p.p.)</span>" if gol.get("tipo") == "pp" else ""
-            filas_goles += f"""
-                <tr>
-                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: center; color: #0284C7; font-weight: bold; white-space: nowrap;">{gol.get('minuto', '')}'</td>
-                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; color: #1E293B;">{gol.get('jugador', '')}{marca_pp}</td>
-                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: right; color: #64748B; font-size: 12px;">{_lado_a_nombre(partido, gol.get('equipo'))}</td>
-                </tr>"""
-        goles_html = f"""
-        <div style="background-color: #F8FAFC; border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid #E2E8F0;">
-            <h4 style="margin: 0 0 12px 0; color: #002B49; font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
-                ⚽ Goles del partido <span style="color:#64748B; font-weight:normal; text-transform:none;">({len(goles)})</span>
-            </h4>
-            <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; border-collapse: collapse;">{filas_goles}
-            </table>
-        </div>"""
-
-    # 4. Sección de goleadores del equipo
-    goleadores_html = ""
-    if goleadores_equipo:
-        filas_gol = ""
-        for i, go in enumerate(goleadores_equipo, 1):
-            filas_gol += f"""
-                <tr>
-                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: center; color: #64748B; font-weight: bold;">{i}</td>
-                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; color: #1E293B;">{go['jugador']}</td>
-                    <td style="padding: 6px 8px; border-bottom: 1px solid #F1F5F9; text-align: right; color: #0284C7; font-weight: bold;">{go['goles']}</td>
-                </tr>"""
-        goleadores_html = f"""
-        <div style="background-color: #F8FAFC; border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid #E2E8F0;">
-            <h4 style="margin: 0 0 12px 0; color: #002B49; font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
-                🎯 Goleadores {MI_EQUIPO_NOMBRE}
-            </h4>
-            <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 13px; border-collapse: collapse;">{filas_gol}
-            </table>
-        </div>"""
-
-    # 5. Sección de clasificación completa
-    clasif_completa_html = ""
-    if clasificacion_completa:
-        filas_clasif = ""
-        for eq in clasificacion_completa:
-            es_efro = normalizar_nombre(eq["equipo"]) == normalizar_nombre(MI_EQUIPO_NOMBRE)
-            fondo = "#EFF6FF" if es_efro else "#FFFFFF"
-            peso = "bold" if es_efro else "normal"
-            color_eq = "#1D4ED8" if es_efro else "#1E293B"
-            filas_clasif += f"""
-                <tr style="background-color: {fondo};">
-                    <td style="padding: 5px 6px; text-align: center; color: #64748B; border-bottom: 1px solid #F1F5F9;">{eq['posicion']}</td>
-                    <td style="padding: 5px 6px; text-align: left; font-weight: {peso}; color: {color_eq}; border-bottom: 1px solid #F1F5F9;">{eq['equipo']}</td>
-                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pj']}</td>
-                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['gf']}:{eq['gc']}</td>
-                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['dif']:+d}</td>
-                    <td style="padding: 5px 6px; text-align: center; font-weight: bold; color: #002B49; border-bottom: 1px solid #F1F5F9;">{eq['puntos']}</td>
-                </tr>"""
-        clasif_completa_html = f"""
-        <div style="background-color: #F8FAFC; border-radius: 10px; padding: 16px; margin-top: 20px; border: 1px solid #E2E8F0;">
-            <h4 style="margin: 0 0 12px 0; color: #002B49; font-size: 15px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
-                🏆 Clasificación · 3ª Benjamín Grupo 10
-            </h4>
-            <table width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; border-collapse: collapse;">
-                <tr style="color:#64748B; font-size: 11px; text-transform: uppercase;">
-                    <td style="padding: 4px; text-align: center; width: 8%;">#</td>
-                    <td style="padding: 4px; text-align: left;">Equipo</td>
-                    <td style="padding: 4px; text-align: center; width: 10%;">PJ</td>
-                    <td style="padding: 4px; text-align: center; width: 14%;">GF:GC</td>
-                    <td style="padding: 4px; text-align: center; width: 10%;">Dif</td>
-                    <td style="padding: 4px; text-align: center; width: 10%;">Pts</td>
-                </tr>{filas_clasif}
-            </table>
-        </div>"""
+    # 3. Secciones reutilizables (goles, goleadores y clasificación)
+    goles_html = _tarjeta_goles_html(partido, goles)
+    goleadores_html = _tarjeta_goleadores_html(goleadores_equipo)
+    clasif_completa_html = _tarjeta_clasificacion_html(clasificacion_completa)
 
     nota_marcador_html = ""
     if marcador_real != marcador:
@@ -379,7 +385,13 @@ def format_mensaje_resultado(
     return titulo, cuerpo_texto, cuerpo_html
 
 
-def format_mensaje_previo(partido: dict, jornada: int = None) -> tuple[str, str, str]:
+def format_mensaje_previo(
+    partido: dict,
+    jornada: int = None,
+    clasificacion: dict = None,
+    clasificacion_completa: list[dict] = None,
+    goleadores_equipo: list[dict] = None,
+) -> tuple[str, str, str]:
     """Construye el mensaje y HTML de aviso previo del partido para el fin de semana."""
     j_str = f" (Jornada {jornada})" if jornada else ""
     local = partido["local"]
@@ -389,6 +401,8 @@ def format_mensaje_previo(partido: dict, jornada: int = None) -> tuple[str, str,
     arbitro = partido.get("arbitro", "Por determinar")
     escudo_local = partido.get("escudo_local") or ""
     escudo_visitante = partido.get("escudo_visitante") or ""
+    clasificacion_completa = clasificacion_completa or []
+    goleadores_equipo = goleadores_equipo or []
 
     titulo = f"📅 Próximo partido Efro B: {local} vs {visitante}{j_str}"
     
@@ -399,6 +413,14 @@ def format_mensaje_previo(partido: dict, jornada: int = None) -> tuple[str, str,
     ]
     if arbitro and arbitro != "Por determinar":
         lineas.append(f"Árbitro: {arbitro}")
+    if clasificacion:
+        lineas.append(
+            f"Así va Efro B: {clasificacion.get('posicion')}º · "
+            f"{clasificacion.get('puntos')} pts"
+        )
+    if goleadores_equipo:
+        goleadores_txt = ", ".join(f"{go['jugador']} ({go['goles']})" for go in goleadores_equipo[:5])
+        lineas.append(f"Goleadores Efro B: {goleadores_txt}")
     cuerpo_texto = "\n".join(lineas)
 
     escudo_l_html = f'<img src="{escudo_local}" width="60" height="60" style="object-fit:contain;" alt="{local}">' if escudo_local else '<div style="font-size:32px;">🛡️</div>'
@@ -461,6 +483,11 @@ def format_mensaje_previo(partido: dict, jornada: int = None) -> tuple[str, str,
                                     </div>
                                     {f'<div><span style="font-size: 12px; color: #64748B; font-weight: bold; text-transform: uppercase; display: block;">🧑‍⚖️ Árbitro</span><span style="font-size: 14px; color: #334155;">{arbitro}</span></div>' if (arbitro and arbitro != "Por determinar") else ''}
                                 </div>
+
+                                <!-- Cómo llega el equipo: clasificación y goleadores -->
+                                {_tarjeta_goleadores_html(goleadores_equipo)}
+
+                                {_tarjeta_clasificacion_html(clasificacion_completa)}
                             </td>
                         </tr>
 
