@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -201,8 +202,28 @@ def main():
             logger.info(f"Consultando jornada forzada: {jornada_actual}")
         else:
             logger.info("Consultando jornadas disponibles en asturfutbol...")
-            soup_inicial = client.get_jornada_soup(cod_jornada=1)
-            jornadas = parse_jornadas_disponibles(soup_inicial)
+            jornadas = []
+            for intento in range(1, 5):
+                try:
+                    soup_inicial = client.get_jornada_soup(cod_jornada=1)
+                    jornadas = parse_jornadas_disponibles(soup_inicial)
+                except Exception as e:
+                    soup_inicial = None
+                    logger.warning(f"Intento {intento}: error descargando jornadas: {e}")
+                if jornadas:
+                    break
+                if soup_inicial is not None:
+                    titulo_pag = soup_inicial.title.get_text(strip=True) if soup_inicial.title else "-"
+                    texto = " ".join(soup_inicial.get_text(" ", strip=True).split())[:400]
+                    logger.warning(
+                        f"Intento {intento}: la página no trae el selector de jornadas "
+                        f"(título: {titulo_pag!r}). Texto: {texto!r}"
+                    )
+                client = AsturfutbolClient()  # sesión nueva para el siguiente intento
+                time.sleep(10 * intento)
+            if not jornadas:
+                logger.error("No se pudo obtener la lista de jornadas tras varios intentos. Abortando.")
+                return 1
             jornada_actual = seleccionar_jornada_actual(jornadas, fecha_ref=datetime.now())
             logger.info(f"Jornada seleccionada automáticamente: {jornada_actual}")
 
