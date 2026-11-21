@@ -83,21 +83,29 @@ def _tarjeta_clasificacion_html(clasificacion_completa: list[dict]) -> str:
         color_eq = "#1D4ED8" if es_efro else "#1E293B"
         filas += f"""
                 <tr style="background-color: {fondo};">
-                    <td style="padding: 5px 6px; text-align: center; color: #64748B; border-bottom: 1px solid #F1F5F9;">{eq['posicion']}</td>
-                    <td style="padding: 5px 6px; text-align: left; font-weight: {peso}; color: {color_eq}; border-bottom: 1px solid #F1F5F9;">{eq['equipo']}</td>
-                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pj']}</td>
-                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['gf']}:{eq['gc']}</td>
-                    <td style="padding: 5px 6px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['dif']:+d}</td>
-                    <td style="padding: 5px 6px; text-align: center; font-weight: bold; color: #002B49; border-bottom: 1px solid #F1F5F9;">{eq['puntos']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #64748B; border-bottom: 1px solid #F1F5F9;">{eq['posicion']}</td>
+                    <td style="padding: 5px 3px; text-align: left; font-weight: {peso}; color: {color_eq}; border-bottom: 1px solid #F1F5F9;">{eq['equipo']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pj']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pg']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pe']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['pp']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['gf']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['gc']}</td>
+                    <td style="padding: 5px 3px; text-align: center; color: #475569; border-bottom: 1px solid #F1F5F9;">{eq['dif']:+d}</td>
+                    <td style="padding: 5px 3px; text-align: center; font-weight: bold; color: #002B49; border-bottom: 1px solid #F1F5F9;">{eq['puntos']}</td>
                 </tr>"""
     tabla = f"""<table width="100%" cellpadding="0" cellspacing="0" style="font-size: 12px; border-collapse: collapse;">
                 <tr style="color:#64748B; font-size: 11px; text-transform: uppercase;">
-                    <td style="padding: 4px; text-align: center; width: 8%;">#</td>
+                    <td style="padding: 4px; text-align: center; width: 6%;">#</td>
                     <td style="padding: 4px; text-align: left;">Equipo</td>
-                    <td style="padding: 4px; text-align: center; width: 10%;">PJ</td>
-                    <td style="padding: 4px; text-align: center; width: 14%;">GF:GC</td>
-                    <td style="padding: 4px; text-align: center; width: 10%;">Dif</td>
-                    <td style="padding: 4px; text-align: center; width: 10%;">Pts</td>
+                    <td style="padding: 4px; text-align: center; width: 7%;">PJ</td>
+                    <td style="padding: 4px; text-align: center; width: 7%;">G</td>
+                    <td style="padding: 4px; text-align: center; width: 7%;">E</td>
+                    <td style="padding: 4px; text-align: center; width: 7%;">P</td>
+                    <td style="padding: 4px; text-align: center; width: 7%;">GF</td>
+                    <td style="padding: 4px; text-align: center; width: 7%;">GC</td>
+                    <td style="padding: 4px; text-align: center; width: 8%;">DG</td>
+                    <td style="padding: 4px; text-align: center; width: 8%;">Pts</td>
                 </tr>{filas}
             </table>"""
     return _tarjeta_html("🏆 Clasificación · 3ª Benjamín Grupo 10", tabla)
@@ -201,7 +209,8 @@ def format_mensaje_resultado(
             marca = "  <<<" if normalizar_nombre(eq["equipo"]) == normalizar_nombre(MI_EQUIPO_NOMBRE) else ""
             detalles.append(
                 f"  {eq['posicion']:>2}. {eq['equipo']:<36} "
-                f"{eq['pj']:>2}PJ {eq['gf']:>3}:{eq['gc']:<3} {eq['puntos']:>2} pts{marca}"
+                f"PJ {eq['pj']:>2} | G {eq['pg']:>2} E {eq['pe']:>2} P {eq['pp']:>2} | "
+                f"GF {eq['gf']:>3} GC {eq['gc']:>3} DG {eq['dif']:>+4d} | {eq['puntos']:>2} pts{marca}"
             )
 
     rival = visitante if es_efro_local else local
